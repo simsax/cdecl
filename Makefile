@@ -1,2 +1,2 @@
 cdecl: cdecl.c
-	cc -o cdecl cdecl.c
+	cc -g -o cdecl cdecl.c
