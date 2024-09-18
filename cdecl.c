@@ -18,26 +18,11 @@ typedef enum {
     TOKEN_ASTERISK,
     TOKEN_TYPE,
     TOKEN_QUALIFIER,
+    TOKEN_STORAGE,
     TOKEN_IDENTIFIER,
     TOKEN_UNKNOWN,
     TOKEN_END
 } TokenType;
-
-const char* token_types[] = {
-    "TOKEN_LEFT_PAREN",
-    "TOKEN_RIGHT_PAREN",
-    "TOKEN_LEFT_SQUARE",
-    "TOKEN_RIGHT_SQUARE",
-    "TOKEN_LEFT_BRACE",
-    "TOKEN_RIGHT_BRACE",
-    "TOKEN_SEMICOLON",
-    "TOKEN_ASTERISK",
-    "TOKEN_TYPE",
-    "TOKEN_QUALIFIER",
-    "TOKEN_IDENTIFIER",
-    "TOKEN_UNKNOWN",
-    "TOKEN_END"
-};
 
 typedef struct {
 	TokenType type;
@@ -89,17 +74,6 @@ void make_single_char_token(Token* token, char c, TokenType type) {
     token->type = type;
 }
 
-void print_token(Token* token) {
-    printf("%-30s| %s\n", token_types[token->type], token->name);
-}
-
-void print_token_stack() {
-    for (int i = 0; i < token_stack.index; i++) 
-    {
-        print_token(&token_stack.stack[i]);
-    }
-}
-
 static bool is_alphanumeric(char c) {
     return ((c >= '0' && c <= '9') ||
             (c >= 'a' && c <= 'z') ||
@@ -146,10 +120,10 @@ void classify_string(Token* token, const char* declaration, int decl_len) {
                                     return;
                             }
                         }
-                        return;
+                        break;
                 }
             }
-            return;
+            break;
         case 'c':
             if (current_index >= start_index + 1) {
                 switch (declaration[start_index + 1]) {
@@ -161,7 +135,7 @@ void classify_string(Token* token, const char* declaration, int decl_len) {
                         return;
                 }
             }
-            return;
+            break;
         case 's':
             if (current_index >= start_index + 1) {
                 switch (declaration[start_index + 1]) {
@@ -172,11 +146,20 @@ void classify_string(Token* token, const char* declaration, int decl_len) {
                         check_keyword(token, declaration, start_index, current_index, "signed", TOKEN_TYPE);
                         return;
                     case 't':
-                        check_keyword(token, declaration, start_index, current_index, "struct", TOKEN_TYPE);
-                        return;
+                        if (current_index >= start_index + 2) {
+                            switch (declaration[start_index + 2]) {
+                                case 'r':
+                                    check_keyword(token, declaration, start_index, current_index, "struct", TOKEN_TYPE);
+                                    return;
+                                case 'a':
+                                    check_keyword(token, declaration, start_index, current_index, "static", TOKEN_STORAGE);
+                                    return;
+                            }
+                        }
+                        break;
                 }
             }
-            return;
+            break;
         case 'i':
             check_keyword(token, declaration, start_index, current_index, "int", TOKEN_TYPE);
             return;
@@ -197,10 +180,10 @@ void classify_string(Token* token, const char* declaration, int decl_len) {
                                     return;
                             }
                         }
-                        return;
+                        break;
                 }
             }
-            return;
+            break;
         case 'f':
             check_keyword(token, declaration, start_index, current_index, "float", TOKEN_TYPE);
             return;
@@ -208,8 +191,17 @@ void classify_string(Token* token, const char* declaration, int decl_len) {
             check_keyword(token, declaration, start_index, current_index, "double", TOKEN_TYPE);
             return;
         case 'e':
-            check_keyword(token, declaration, start_index, current_index, "enum", TOKEN_TYPE);
-            return;
+            if (current_index >= start_index + 1) {
+                switch (declaration[start_index + 1]) {
+                    case 'n':
+                        check_keyword(token, declaration, start_index, current_index, "enum", TOKEN_TYPE);
+                        return;
+                    case 'x':
+                        check_keyword(token, declaration, start_index, current_index, "extern", TOKEN_STORAGE);
+                        return;
+                }
+            }
+            break;
     }
     make_identifier_token(token, declaration, start_index, current_index);
 }
@@ -294,13 +286,11 @@ void read_to_first_identifier(const char* declaration, int decl_len) {
 
 void deal_with_function_args(const char* declaration, int decl_len) {
     // expect no args for now
-    this_token = get_token(declaration, decl_len);
-    if (this_token.type != TOKEN_RIGHT_PAREN) {
-        fprintf(stderr, "ERROR: Expected ')' to end function, but found '%s'.\n", this_token.name);
-        exit(EXIT_FAILURE);
+    while (this_token.type != TOKEN_RIGHT_PAREN) {
+        this_token = get_token(declaration, decl_len);
     }
     printf("function returning ");
-    /*this_token = get_token(declaration, decl_len);*/
+    this_token = get_token(declaration, decl_len);
     return;
 }
 
@@ -343,15 +333,26 @@ void deal_with_declarator(const char* declaration, int decl_len) {
     while (token_stack.index > 0) {
         if (peek()->type == TOKEN_LEFT_PAREN) {
             pop();
-            /*this_token = get_token(declaration, decl_len);*/
             if (this_token.type != TOKEN_RIGHT_PAREN) {
                 fprintf(stderr, "ERROR: Expected ')' but found '%s'.\n", this_token.name);
                 exit(EXIT_FAILURE);
             }
+            this_token = get_token(declaration, decl_len);
             deal_with_declarator(declaration, decl_len);
         } else {
             Token top_of_stack = pop();
-            printf("%s ", top_of_stack.name);
+            if (top_of_stack.type == TOKEN_ASTERISK)
+                printf("pointer to ");
+            else if (strcmp(top_of_stack.name, "const") == 0)
+                printf("read-only ");
+            else if (strcmp(top_of_stack.name, "volatile") == 0)
+                printf("volatile ");
+            else {
+                // read remaning tokens
+                for (int i = 0; i <= token_stack.index; i++)
+                    printf("%s ", token_stack.stack[i].name);
+                return;
+            }
         }
     }
     return;
@@ -366,10 +367,12 @@ int main(int argc, char** argv) {
         getline(&declaration, &decl_len, stdin);
         decl_len = strlen(declaration);
         read_to_first_identifier(declaration, decl_len);
-        /*print_token_stack();*/
         deal_with_declarator(declaration, decl_len);
         printf("\n");
         free(declaration);
     }
 	return 0;
 }
+
+// char* const *(*next)();
+// char *(*c[10])();
